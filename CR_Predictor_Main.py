@@ -14,13 +14,13 @@ def main():
     if ans == "Y":
         #Fetching real data from API
         df_raw = CR_Dataloader.extract_data() 
-        df_raw.to_csv("deck_win_data.csv")
+        df_raw.to_csv("deck_win_data.csv", index=False)
     else:
         #Use deck_win_data.csv to prevent needing to fetch API data when debugging
         df_raw = pd.read_csv('deck_win_data.csv')
     
     df = CR_Dataloader.OneHotEncode(df_raw)
-    print("Dataframe shape is: " + str(df.shape))
+    df.to_csv("ohe_data.csv", index=False)
     
     CR_Predictor_Model.train(df)
     

@@ -13,21 +13,28 @@ from sklearn.linear_model import SGDClassifier
 from statistics import mean
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn import tree
 
 
 def train(D):
     # D is a dataframe containing Win and Score columns as well as one-hot-encodings
     # of the two decks being played
     train, test = train_test_split(D, test_size = 0.2, random_state = 42) #random_state = 42 makes results reproducible
-    train_features = train.iloc[:, 2:]
+    train.to_csv("train.tsv", index=False, sep ='\t')
+    test.to_csv("test.tsv", index=False, sep ='\t')
+    train_features = train.iloc[:, 3:]
     train_labels = train["Win"]
-    test_features = test.iloc[:, 2:]
+    test_features = test.iloc[:, 3:]
     test_labels = test["Win"]
     
+    '''
     #Model 1: Decision Tree Classifier
     tree_clf = DecisionTreeClassifier()
-    #tree_clf.fit(train_features, train_labels)
-    
+    tree_clf.fit(train_features, train_labels)
+    print(tree_clf.score(test_features, test_labels))
+    tree.plot_tree(tree_clf)
+    '''
+    '''
     #Use cross validation to assess effectiveness of a DTC
     dtc_scores = cross_val_score(tree_clf, train_features, train_labels, cv=10, scoring="accuracy")
     print("DTC Scores: " + str(mean(dtc_scores)))
@@ -38,12 +45,20 @@ def train(D):
     #Use cross validation to assess effectiveness of a DTC
     sgd_scores = cross_val_score(sgd_clf, train_features, train_labels, cv=10, scoring="accuracy")
     print("SGD Scores: " + str(mean(sgd_scores)))
-    
+    '''
     logreg_clf = LogisticRegression()
     
     #Use cross validation to assess effectiveness of a DTC
-    logref_scores = cross_val_score(logreg_clf, train_features, train_labels, cv=10, scoring="accuracy")
-    print("Logistic Regression Scores: " + str(mean(logref_scores)))
+    #logref_scores = cross_val_score(logreg_clf, train_features, train_labels, cv=10, scoring="accuracy")
+    logreg_clf.fit(train_features, train_labels)
+    
+    predictions = (logreg_clf.predict(test_features))
+    for i in range(10):
+        print("Prediction is " + str(predictions[i]) + '\n')
+        print("Actual results are " + str(test_labels.iloc[i]) + '\n')
+    
+    #print(logreg_clf.score(test_features, test_labels))
+    #print("Logistic Regression Scores: " + str(mean(logref_scores)))
     
     '''
     knn_clf = KNeighborsClassifier(n_neighbors=5)
