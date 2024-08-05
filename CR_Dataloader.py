@@ -8,99 +8,133 @@ Created on Sun Mar  3 15:53:49 2024
 """
 
 import requests
-#import json
+import json
 import pandas as pd
 from sklearn.preprocessing import MultiLabelBinarizer
 import ast
+from torch.utils.data import Dataset, DataLoader
+import torch
+import pdb
+import os
+
+LOCAL_DATA_PATH = 'clash_royale_data.json'
 
 '''
 Obtains raw data from Clash Royale's API and formats into a Datafram containing
 columns representing the Player's Decks, Opponent's Decks, Score (in terms of crowns),
 and Win or Loss. Decks are stored as lists of eight string card names. 
 '''
-def extract_data():
+class BattleDataset(Dataset):
+    def __init__(self, player_deck, opp_deck, win):
+        """
+        Initialize the dictionaries, sequences, and labels for the dataset
+        """
+        self.player_deck = player_deck
+        self.opp_deck = opp_deck
+        self.win = win
+
+                    
+    def __len__(self):
+        return len(self.win)
+
+    def __getitem__(self, idx):
+        return (torch.tensor(self.player_deck[idx]), torch.tensor(self.opp_deck[idx]), torch.tensor(self.win[idx]))
+
+
+
+
+def extract_data(card_to_idx):
+    next_card_num = 0
     opp_decks = [] #list of every opponent deck
     player_decks = [] #list of every player deck
     score = [] #score of the game in a list of len 2 representing crowns taken
     win = []
 
-    #Obtain clan information from top clans in North America
-    request_clan = requests.get("https://api.clashroyale.com/v1/locations/57000001/rankings/clans", 
-                   headers={"Accept":"application/json", 
-                            "authorization":"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6ImYzMDU5YjgxLTQyZWUtNDIwMy1iYjIwLWIyMjJkM2Y5NTc2YiIsImlhdCI6MTcwOTU3NDAwMSwic3ViIjoiZGV2ZWxvcGVyLzY0NThiM2ZmLWZjNDctODdmMi1hYjVmLWY4MTgzNzVmZjU3ZCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxMjguMjIwLjE1OS4yMTMiXSwidHlwZSI6ImNsaWVudCJ9XX0.izSugOMj0Q4cwxUH0jLyiqCLKjUWeE97794sbSN8vbFSMmnr4mrykLH6xo9hL1jEtpgLipWvgLRdi8SN5viBkw"}, params = {"limit":20})
-    clan_data = request_clan.json()
-    df_clan = pd.DataFrame(clan_data["items"]) #df of top clans in North America
-    for index, clan in df_clan.iterrows():
-        
-        clan_tag = clan["tag"].replace("#","%23") #Format tag to match the format of the API
-        get_members_url = "https://api.clashroyale.com/v1/clans/" + clan_tag 
-        request_members = requests.get(get_members_url, 
-                       headers={"Accept":"application/json", 
-                                "authorization":"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6ImYzMDU5YjgxLTQyZWUtNDIwMy1iYjIwLWIyMjJkM2Y5NTc2YiIsImlhdCI6MTcwOTU3NDAwMSwic3ViIjoiZGV2ZWxvcGVyLzY0NThiM2ZmLWZjNDctODdmMi1hYjVmLWY4MTgzNzVmZjU3ZCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxMjguMjIwLjE1OS4yMTMiXSwidHlwZSI6ImNsaWVudCJ9XX0.izSugOMj0Q4cwxUH0jLyiqCLKjUWeE97794sbSN8vbFSMmnr4mrykLH6xo9hL1jEtpgLipWvgLRdi8SN5viBkw"}, params = {"limit":20})
-        
-        member_tags = request_members.json()["memberList"]
-        for member in member_tags:
+    if os.path.exists(LOCAL_DATA_PATH):
+        # Load data from the local file if it exists
+        with open(LOCAL_DATA_PATH, 'r') as f:
+            saved_data = json.load(f)
+            opp_decks = saved_data["opp_decks"]
+            player_decks = saved_data["player_decks"]
+            score = saved_data["score"]
+            win = saved_data["win"]
+            card_to_idx = saved_data["card_to_idx"]
+            next_card_num = saved_data["next_card_num"]
+
+    else:
+        #Obtain clan information from top clans in North America
+        request_clan = requests.get("https://api.clashroyale.com/v1/locations/57000001/rankings/clans", 
+                    headers={"Accept":"application/json", 
+                                "authorization":"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjkzZjliOGIwLWI4N2MtNGVjZC1iZTVlLTdkYjA3MzU4YzM1YiIsImlhdCI6MTcyMTY5NDU4MCwic3ViIjoiZGV2ZWxvcGVyLzY0NThiM2ZmLWZjNDctODdmMi1hYjVmLWY4MTgzNzVmZjU3ZCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxNzQuMTcyLjEzNS43Il0sInR5cGUiOiJjbGllbnQifV19.KrsIJjoAW6OCUUZ_GCa8EYtArZprdLbq8z8uK6nJgUruuwyp0R74lWDsZqk0_C4w9fT7C7hy1cfhJtXvZtWezw"}, params = {"limit":50})
+        clan_data = request_clan.json()
+        #pdb.set_trace()
+        df_clan = pd.DataFrame(clan_data["items"]) #df of top clans in North America
+        for index, clan in df_clan.iterrows():
             
-            member_tag = member["tag"].replace("#","%23")
-            get_battles_url = "https://api.clashroyale.com/v1/players/" + member_tag + "/battlelog"
-            request_battles = requests.get(get_battles_url, 
-                           headers={"Accept":"application/json", 
-                                    "authorization":"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6ImYzMDU5YjgxLTQyZWUtNDIwMy1iYjIwLWIyMjJkM2Y5NTc2YiIsImlhdCI6MTcwOTU3NDAwMSwic3ViIjoiZGV2ZWxvcGVyLzY0NThiM2ZmLWZjNDctODdmMi1hYjVmLWY4MTgzNzVmZjU3ZCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxMjguMjIwLjE1OS4yMTMiXSwidHlwZSI6ImNsaWVudCJ9XX0.izSugOMj0Q4cwxUH0jLyiqCLKjUWeE97794sbSN8vbFSMmnr4mrykLH6xo9hL1jEtpgLipWvgLRdi8SN5viBkw"}, params = {"limit":20})
+            clan_tag = clan["tag"].replace("#","%23") #Format tag to match the format of the API
+            get_members_url = "https://api.clashroyale.com/v1/clans/" + clan_tag 
+            request_members = requests.get(get_members_url, 
+                        headers={"Accept":"application/json", 
+                                    "authorization":"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjkzZjliOGIwLWI4N2MtNGVjZC1iZTVlLTdkYjA3MzU4YzM1YiIsImlhdCI6MTcyMTY5NDU4MCwic3ViIjoiZGV2ZWxvcGVyLzY0NThiM2ZmLWZjNDctODdmMi1hYjVmLWY4MTgzNzVmZjU3ZCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxNzQuMTcyLjEzNS43Il0sInR5cGUiOiJjbGllbnQifV19.KrsIJjoAW6OCUUZ_GCa8EYtArZprdLbq8z8uK6nJgUruuwyp0R74lWDsZqk0_C4w9fT7C7hy1cfhJtXvZtWezw"}, params = {"limit":30})
             
-            battle_log = request_battles.json()
-            
-            for battle in battle_log:
+            member_tags = request_members.json()["memberList"]
+            for member in member_tags:
                 
-                cards_team = battle["team"][0]["cards"]
-                deck_team = []  # player's deck
-                for card in cards_team:
-                    deck_team.append(card["name"])
+                member_tag = member["tag"].replace("#","%23")
+                get_battles_url = "https://api.clashroyale.com/v1/players/" + member_tag + "/battlelog"
+                request_battles = requests.get(get_battles_url, 
+                            headers={"Accept":"application/json", 
+                                        "authorization":"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjkzZjliOGIwLWI4N2MtNGVjZC1iZTVlLTdkYjA3MzU4YzM1YiIsImlhdCI6MTcyMTY5NDU4MCwic3ViIjoiZGV2ZWxvcGVyLzY0NThiM2ZmLWZjNDctODdmMi1hYjVmLWY4MTgzNzVmZjU3ZCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxNzQuMTcyLjEzNS43Il0sInR5cGUiOiJjbGllbnQifV19.KrsIJjoAW6OCUUZ_GCa8EYtArZprdLbq8z8uK6nJgUruuwyp0R74lWDsZqk0_C4w9fT7C7hy1cfhJtXvZtWezw"}, params = {"limit":20})
+                
+                battle_log = request_battles.json()
+                
+                for battle in battle_log:
                     
-                deck_opp = [] # opponent's deck
-                cards_opp = battle["opponent"][0]["cards"]
-                for card in cards_opp:
-                    deck_opp.append(card["name"])
-                
-                crowns_team = battle["team"][0]["crowns"] #crowns taken by the player
-                crowns_opp = battle["opponent"][0]["crowns"] #crowns taken by opponent
-                
-                opp_decks.append(deck_opp) 
-                player_decks.append(deck_team)
-                
-                score.append([crowns_team, crowns_opp])
-                win.append(int(crowns_team > crowns_opp)) # note that this doesn't account for ties (I'm assuming ties are too rare to necessitate needing to account for them)
-                
-    return pd.DataFrame({"Opponent's deck":opp_decks, "Player's deck":player_decks, "Crowns taken":score, "Win":win})
+                    cards_team = battle["team"][0]["cards"]
+                    deck_team = []  # player's deck
+                    for card in cards_team:
+                        if card["name"] in card_to_idx:
+                            deck_team.append(card_to_idx[card["name"]])
+                        else:
+                            card_to_idx[card["name"]] = next_card_num
+                            next_card_num += 1
+                            deck_team.append(card_to_idx[card["name"]])
+                    if len(deck_team) != 8:
+                        continue
+                        
+                    deck_opp = [] # opponent's deck
+                    cards_opp = battle["opponent"][0]["cards"]
+                    for card in cards_opp:
+                        if card["name"] in card_to_idx:
+                            deck_opp.append(card_to_idx[card["name"]])
+                        else:
+                            card_to_idx[card["name"]] = next_card_num
+                            next_card_num += 1
+                            deck_opp.append(card_to_idx[card["name"]])
 
-
-'''
-One-hot-encodes the dataframe from CR_Dataloader to convert the representation
-of decks as lists of eight string card names to numerical data where the presence
-of a 1 indicates the presence of the card in the deck
-'''
-def OneHotEncode(df_raw):
-    #Use one-hot-encoding on to convert decks into numerical data
-    mlb = MultiLabelBinarizer()
-
-    #Obtain a list of all 110 possible cards
-    #ALL_CARDS = list(set(item for sublist in (ast.literal_eval(s) for s in list(df_raw["Player's deck"])) for item in sublist))
-    ALL_CARDS = ['Guards', 'Skeleton Army', 'Zap', 'Hunter', 'Witch', 'Ice Spirit', 'Fireball', 'Electro Wizard', 'Ice Golem', 'Princess', 'Monk', 'Balloon', 'Rascals', 'Goblin Gang', 'Mortar', 'Electro Spirit', 'Fire Spirit', 'Executioner', 'Bowler', 'Bomber', 'Bomb Tower', 'Fisherman', 'Spear Goblins', 'Tornado', 'Little Prince', 'Musketeer', 'Goblin Hut', 'Clone', 'Arrows', 'Goblin Giant', 'Flying Machine', 'Wall Breakers', 'Heal Spirit', 'Miner', 'Graveyard', 'Giant Skeleton', 'Archer Queen', 'Minion Horde', 'Golden Knight', 'The Log', 'P.E.K.K.A', 'Skeleton Barrel', 'Royal Ghost', 'Tombstone', 'Phoenix', 'Royal Recruits', 'Skeleton Dragons', 'Skeleton King', 'Archers', 'Rage', 'Sparky', 'Baby Dragon', 'Elixir Collector', 'Golem', 'Minions', 'Giant Snowball', 'Zappies', 'Mother Witch', 'Freeze', 'Giant', 'Bats', 'Firecracker', 'Earthquake', 'Royal Hogs', 'Poison', 'Three Musketeers', 'Elixir Golem', 'Bandit', 'Inferno Dragon', 'Magic Archer', 'Wizard', 'Goblin Cage', 'Ice Wizard', 'Night Witch', 'Valkyrie', 'Mighty Miner', 'Mega Minion', 'Inferno Tower', 'Mega Knight', 'X-Bow', 'Mirror', 'Barbarians', 'Barbarian Barrel', 'Goblin Barrel', 'Mini P.E.K.K.A', 'Lava Hound', 'Dart Goblin', 'Ram Rider', 'Cannon', 'Elite Barbarians', 'Battle Ram', 'Knight', 'Barbarian Hut', 'Lumberjack', 'Lightning', 'Battle Healer', 'Prince', 'Hog Rider', 'Furnace', 'Skeletons', 'Electro Giant', 'Rocket', 'Goblin Drill', 'Tesla', 'Royal Delivery', 'Goblins', 'Cannon Cart', 'Royal Giant', 'Dark Prince', 'Electro Dragon']
-
-    #format the decks into a list of lists to appease MLB's fit_transform function
-    player_list_of_lists = [ast.literal_eval(str(s)) for s in df_raw.pop("Player's deck")]
-    opp_list_of_lists = [ast.literal_eval(str(s)) for s in df_raw.pop("Opponent's deck")]
-
-    #Create a new Dataframe containing the one-hot-encoded player and opponent decks
-    df = df_raw.join(pd.DataFrame(
-        mlb.fit_transform(player_list_of_lists),
-        index=df_raw.index,
-        columns=ALL_CARDS))
-
-    df = df.join(pd.DataFrame(
-        mlb.fit_transform(opp_list_of_lists),
-        index=df_raw.index,
-        columns=ALL_CARDS), how = 'left', lsuffix='_Player', rsuffix='_Opponent')
+                    if len(deck_opp) != 8:
+                        continue        
+            
+                    
+                    crowns_team = battle["team"][0]["crowns"] #crowns taken by the player
+                    crowns_opp = battle["opponent"][0]["crowns"] #crowns taken by opponent
+                    
+                    opp_decks.append(deck_opp) 
+                    player_decks.append(deck_team)
+                    
+                    score.append([crowns_team, crowns_opp])
+                    win.append(int(crowns_team > crowns_opp)) # note that this doesn't account for ties (I'm assuming ties are too rare to necessitate needing to account for them)
+        
+        # Save the fetched data to a local file
+        with open(LOCAL_DATA_PATH, 'w') as f:
+            json.dump({
+                "opp_decks": opp_decks,
+                "player_decks": player_decks,
+                "score": score,
+                "win": win,
+                "card_to_idx": card_to_idx,
+                "next_card_num": next_card_num
+            }, f)
     
-    return df
-            
-            
+    return BattleDataset(player_decks, opp_decks, win), saved_data["card_to_idx"]
+
